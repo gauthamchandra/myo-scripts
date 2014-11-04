@@ -1,5 +1,10 @@
 myo-scripts
 ===========
+[![forthebadge](http://forthebadge.com/badges/designed-in-ms-paint.svg)](http://forthebadge.com)
+
+[![forthebadge](http://forthebadge.com/badges/built-with-swag.svg)](http://forthebadge.com)
+
+[![forthebadge](http://forthebadge.com/badges/powered-by-jeffs-keyboard.svg)](http://forthebadge.com)
 
 A collection of scripts for [Myo](https://www.thalmic.com/en/myo/ "Myo") for anyone to use or improve on.
 
