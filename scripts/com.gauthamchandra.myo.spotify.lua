@@ -6,7 +6,7 @@ scriptId = 'com.gauthamchandra.myo.spotify'
 ---Prev/Next Track : Wave Left/Right
 ---Seek Forward/Backward : Wave Left/Right and HOLD for 1/2 second
 
-
+--SEE ANYTHING NOT WORKING? PLEASE REPORT THE BUG/ISSUE HERE: https://github.com/gauthamchandra/myo-scripts/issues
 
 -- Some constants
 UNLOCKED_TIMEOUT = 3000 --Time since last activity before we lock
@@ -14,24 +14,50 @@ ROTATE_TIME_THRESHOLD = 500 --Time before the rotate gesture is recognized (to p
 SEEK_THRESHOLD = 500 --Time before a next/prev track gesture becomes a seek forward/back gesture
 ROLL_MOTION_THRESHOLD = 7 --The number of degrees that must be turned for the volume up/down gesture to activate
 
-function changeVolume(direction)
-	local modifier = ""
+--In the event they are at the search box, hit escape twice 
+--to get out (1 for stopping the typing and the next to unfocus the field)
+function escapeAnyPossibleTextField()
+	myo.keyboard("escape", "press")
+	myo.keyboard("escape", "press")
+end
 
+--Just holds the modifier key down until the volume change is complete
+function toggleModifierForVolumeChange(startOrEndOfGesture)
+	local modifier = ""
 	if platform == "MacOS" then
 		modifier = "command"
 	elseif platform == "Windows" then
 		modifier = "control"
 	end
-
-	if direction == "up" then
-		myo.keyboard("up_arrow", "press", modifier)
-	elseif direction == "down" then
-		myo.keyboard("down_arrow", "press", modifier)
+	
+	if startOrEndOfGesture == "start" then
+		myo.keyboard("left_" .. modifier, "down");
+	else
+		myo.keyboard("left_" .. modifier, "up");
 	end
+end
 
+--The lastVolumeChangeSince is used for debouncing since the calls to change volume are
+--executed inside onPeriodic and that is every 10ms (way too often)
+lastVolumeChangeSince = myo.getTimeMilliseconds()
+function changeVolume(direction)
+	local now = myo.getTimeMilliseconds()
+	
+	--only execute the volume change if the volume has not been changed for > 1/10th of a second
+	if now - lastVolumeChangeSince > 100 then
+		if direction == "up" then
+			myo.keyboard("up_arrow", "down")
+			myo.keyboard("up_arrow", "up")
+		else
+			myo.keyboard("down_arrow", "down")
+			myo.keyboard("down_arrow", "up")
+		end
+		lastVolumeChangeSince = now
+	end
 end
 
 function togglePlay()
+	escapeAnyPossibleTextField()
 	myo.keyboard("space", "press")
 end
 
@@ -47,20 +73,40 @@ function changeTrack(type)
 
 	if type == "next" then
 		myo.keyboard("right_arrow", "press", modifier)
-	else
+	else 
 		myo.keyboard("left_arrow", "press", modifier)
 	end
 end
 
 -- Seeks forward/backward. The endOfSeek parameter is a flag that tells it whether to stop 
 -- pressing the button combination or press it
-function seek(type)
-	-- Platform doesn't matter for seek as its the same in OSX and Windows
-	if type == "forward" then
-		myo.keyboard("right_arrow", "press", "shift")
-	elseif type == "backward" then
-		myo.keyboard("left_arrow", "press", "shift")
+function toggleModifierForSeek(startOrEndOfGesture) 
+	if startOrEndOfGesture == "start" then
+		myo.keyboard("left_shift", "down", "shift")
+	else
+		myo.keyboard("left_shift", "up", "shift")
 	end
+end
+
+--The lastSeekChange is used for debouncing since the calls to seek are
+--executed inside onPeriodic and that is every 10ms (way too often)
+lastSeekChangeSince = myo.getTimeMilliseconds()
+function seek(type)
+	escapeAnyPossibleTextField()
+
+	--only execute the seek change if the seek change has not been done for > 1/10th of a second
+	local now = myo.getTimeMilliseconds()
+	if now - lastSeekChangeSince > 20 then
+		-- Platform doesn't matter for seek as its the same in OSX and Windows
+		if type == "forward" then
+			myo.keyboard("right_arrow", "press")
+		elseif type == "backward" then
+			myo.keyboard("left_arrow", "press")
+		end
+		lastSeekChangeSince = now
+	end
+	
+	
 end
 -- The function to call to unlock Myo (with thumb-pinky gesture) so that the user can
 -- control app
@@ -110,9 +156,9 @@ function onPeriodic()
 		if fistRotationGesture and now - rotateSince > ROTATE_TIME_THRESHOLD then
 			local rollInDegs = math.deg(myo.getRoll())
 			local degDelta = fistRollReferencePoint - rollInDegs
-
+			
 			if math.abs(degDelta) > ROLL_MOTION_THRESHOLD then
-				if degDelta < 0 then
+				if degDelta > 0 then
 					changeVolume("down")
 				else
 					changeVolume("up")
@@ -165,11 +211,13 @@ function onPoseEdge(pose, edge)
 	elseif pose == "fist" then
 		if unlocked and edge == "on" then
 			fistRotationGesture = true
+			toggleModifierForVolumeChange("start")
 			fistRollReferencePoint = math.deg(myo.getRoll())
 			rotateSince = myo.getTimeMilliseconds()
 			resetUnlockTimeout()
 		elseif unlocked and edge == "off" then
 			fistRotationGesture = false
+			toggleModifierForVolumeChange("end")
 			resetUnlockTimeout()
 		end
 
@@ -181,6 +229,7 @@ function onPoseEdge(pose, edge)
 			-- gesture meant to seek forward/back
 			seekSince = now
 			seekGesture = getWaveDirection(pose)
+			toggleModifierForSeek("start")
 
 			resetUnlockTimeout()
 		end
@@ -192,7 +241,9 @@ function onPoseEdge(pose, edge)
 			local successfulGesture = false
 
 			--Just in case, this was the end of the seek gesture, set it to false
+			--and stop toggling modifier for seek hotkey
 			seekGesture = nil
+			toggleModifierForSeek("end")
 
 			--If they did the wave gesture for only a small amount of time,
 			--then it was a next/prev track gesture.
@@ -234,16 +285,16 @@ end
 function onForegroundWindowChange(app, title)
 	local wantActive = false
 	activeApp = ""
-	
 	if platform == "MacOS" then
 		if app == "com.spotify.client" then
 			wantActive = true
 			activeApp = "Spotify"
 		end
 	elseif platform == "Windows" then
-		wantActive = string.match(title, " %- Spotify$") or
-					 string.match(title, " %- spotify$")
-		activeApp = "Spotify"
+		if string.match(title, "^Spotify*") then
+			wantActive = true
+			activeApp = "Spotify"
+		end
 	end
 	return wantActive
 end
