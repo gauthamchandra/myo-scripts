@@ -291,7 +291,11 @@ function onForegroundWindowChange(app, title)
 			activeApp = "Spotify"
 		end
 	elseif platform == "Windows" then
-		if string.match(title, "^Spotify*") then
+		--This is hacky but thats because of the script API limitations not allowing us to know
+		--whether its Spotify or someone opened up a app with a doc/page that has the name Spotify
+		--for now, lets just exclude browsers which should eliminate most of the false positives
+		if string.match(title, "^Spotify*") and not string.find(title, "Google Chrome$") 
+		and not string.find(title, "Mozilla Firefox$") and not string.find(title, "Internet Explorer$") then
 			wantActive = true
 			activeApp = "Spotify"
 		end
